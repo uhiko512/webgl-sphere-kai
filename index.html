@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>WebGL Sphere</title>
+		<script type="text/javascript" src="https://rawgit.com/toji/gl-matrix/master/dist/gl-matrix-min.js"></script>
+		<script id="vs" type="x-shader/x-vertex">
+			uniform mat4 mMatrix;
+			uniform mat4 vMatrix;
+			uniform mat4 pMatrix;
+			uniform mat4 normMatrix;
+			uniform float time;
+
+			attribute vec3 position;
+			attribute vec3 normal;
+
+			varying vec3 p;
+			varying vec3 n;
+			varying vec3 c;
+			
+			void main() {
+				vec3 pos = position * (vec3(1.0) + vec3(1.0, 0.0, 1.0) * (sin(position.y * 15.0 + time * 500.0) * 0.3 + 0.3) + vec3(0.0, 2.0, 0.0) * (sin(time * 100.0) * 0.2 + 0.2));
+				n = normalize(normMatrix * vec4(normal, 0.0)).xyz;
+				p = (mMatrix * vec4(pos, 1.0)).xyz;
+				c = vec3(1.0, 0.0, 0.0) * pow(sin(position.y * 15.0 + time * 500.0) * 0.5 + 0.5, 5.0);
+				gl_Position = pMatrix * vMatrix * mMatrix * vec4(pos, 1.0);
+			}
+		</script>
+		<script id="fs" type="x-shader/x-fragment">
+			precision mediump float;
+			 
+			uniform vec3 litPos;
+			uniform vec3 camPos;
+			
+			varying vec3 p;
+			varying vec3 n;
+			varying vec3 c;
+			
+			void main() {
+				vec3 col = vec3(1.0, 1.0, 1.0);
+				vec3 l = normalize(litPos - p);
+				vec3 v = normalize(camPos - p);
+				vec3 n1 = normalize(n);
+				
+				vec3 diffuse = max(dot(n1, l), 0.0) * col * 0.8 + c;
+				
+				vec3 h = normalize(l + v);
+				float specular = pow(max(dot(n1, h), 0.0), 64.0) * 0.1;
+				
+				vec3 ambient = vec3(0.02, 0.15, 0.3);
+				
+				gl_FragColor = vec4(diffuse + specular + ambient, 1.0);
+			}
+		</script>
+	</head>
+	<body>
+		<canvas id="myCanvas"></canvas>
+		<script type="text/javascript">
+		var canvas = document.getElementById("myCanvas");
+		var times = 0;
+		var canvasWidth = 900;
+		var canvasHeight = 900;
+		var viewportWidth;
+		var viewportHeight;
+		var gl;
+		
+		var program;
+		
+		var posAttribute;
+		var normAttribute;
+		var mMatrixUniform;
+		var vMatrixUniform;
+		var pMatrixUniform;
+		var normMatrixUniform;
+		var timeUniform;
+		var litPosUniform;
+		var camPosUniform;
+		
+		var vertexBuffer;
+		var normalBuffer;
+		var lightPos;
+		var camPos;
+		
+		canvas.setAttribute('width', canvasWidth);
+		canvas.setAttribute('height', canvasHeight);
+		
+		gl = canvas.getContext("webgl2");
+		viewportWidth = canvas.width;
+		viewportHeight = canvas.height;
+		
+		/** Shader Program */
+		var shader, code;
+		program = gl.createProgram();
+		
+		// Vertex Shader
+		code = document.getElementById("vs").textContent;
+		shader = gl.createShader(gl.VERTEX_SHADER);
+		gl.shaderSource(shader, code);
+		gl.compileShader(shader);
+		gl.attachShader(program, shader);
+		
+		// Fragment Shader
+		code = document.getElementById("fs").textContent;
+		shader = gl.createShader(gl.FRAGMENT_SHADER);
+		gl.shaderSource(shader, code);
+		gl.compileShader(shader);
+		gl.attachShader(program, shader);
+		
+		gl.linkProgram(program);
+		gl.useProgram(program);
+		/**   End   */
+
+		
+		/** Shader Params */
+		// Attribute
+		posAttribute = gl.getAttribLocation(program, "position");
+		normAttribute = gl.getAttribLocation(program, "normal");
+		
+		// Uniform
+		mMatrixUniform = gl.getUniformLocation(program, "mMatrix");
+		vMatrixUniform = gl.getUniformLocation(program, "vMatrix");
+		pMatrixUniform = gl.getUniformLocation(program, "pMatrix");
+		normMatrixUniform = gl.getUniformLocation(program, "normMatrix");
+		timeUniform = gl.getUniformLocation(program, "time");
+		litPosUniform = gl.getUniformLocation(program, "litPos");
+		camPosUniform = gl.getUniformLocation(program, "camPos");
+		/**   End   */
+		
+		
+		/** Shader Data */
+		gl.uniform1f(timeUniform, 0.0);
+		
+		lightPos = [0.0, 2.0, -1.0];
+		gl.uniform3fv(litPosUniform, lightPos);
+		
+		camPos = [0.0, 0.0, 0.0];
+		gl.uniform3fv(camPosUniform, camPos);
+		
+		/* Sphere Mesh */
+		
+		// Sphere Size
+		var shpereD = 100;
+		var shpereH = 100;
+		
+		// Sphere Points
+		var points = [];
+		points.push(vec3.fromValues(0.0, 1.0, 0.0));
+		for (let h = 1; h < shpereH; h++) {
+			let hw = h / shpereH;
+			let y = Math.cos(Math.PI * hw);
+			let r = Math.sin(Math.PI * hw);
+			for (let d = 0; d < shpereD; d++) {
+				let dw = d / shpereD;
+				let xzTheta = 2.0 * Math.PI * dw;
+				points.push(vec3.fromValues(r * Math.cos(xzTheta), y, r * Math.sin(xzTheta)));
+			}
+		}
+		points.push(vec3.fromValues(0.0, -1.0, 0.0));
+
+		// Sphere Indices
+		var indices = [];
+		// top
+		for (let i = 0; i < shpereD; i++) {
+			indices.push(0, (i + 1) % shpereD + 1, i + 1);
+		}
+		// mid
+		for (let i = 0; i < shpereH - 2; i++) {
+			for (let j = 0; j < shpereD; j++) {
+				let b = 1;
+				let y1 = i * shpereD;
+				let y2 = (i + 1) * shpereD;
+				let xz1 = j;
+				let xz2 = (j + 1) % shpereD;
+				indices.push(y1 + b + xz1, y1 + b + xz2, y2 + b + xz2);
+				indices.push(y1 + b + xz1, y2 + b + xz2, y2 + b + xz1);
+			}
+		}
+		// bottom
+		for (let i = 0; i < shpereD; i++) {
+			let b = 1;
+			let y = (shpereH - 2) * shpereD;
+			let xz1 = i;
+			let xz2 = (i + 1) % shpereD;
+			indices.push(y + xz1 + b, y + xz2 + b, points.length - 1);
+		}
+		console.log("face count:" + indices.length / 3);
+		
+		/* Vertex Buffer */
+		
+		// Vertex
+		vertices = [];
+		for (let i = 0; i < indices.length; i++) {
+			let v = points[indices[i]];
+			vertices.push(v[0], v[1], v[2]);
+		}
+		vertexBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+		vertexBuffer.itemSize = 3;
+		vertexBuffer.numItems = indices.length;
+		
+		// Normal
+		normalBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+		var normals = [];
+		for (var i = 0; i < indices.length; i++) {
+			var norm = vec3.create();
+			var vex = [
+				vec3.fromValues(vertices[(i * 3 + 0) * 3 + 0], vertices[(i * 3 + 0) * 3 + 1], vertices[(i * 3 + 0) * 3 + 2]),
+				vec3.fromValues(vertices[(i * 3 + 1) * 3 + 0], vertices[(i * 3 + 1) * 3 + 1], vertices[(i * 3 + 1) * 3 + 2]),
+				vec3.fromValues(vertices[(i * 3 + 2) * 3 + 0], vertices[(i * 3 + 2) * 3 + 1], vertices[(i * 3 + 2) * 3 + 2])
+			];
+			var a = [], b = [];
+			vec3.sub(a, vex[1], vex[0]);
+			vec3.sub(b, vex[2], vex[0]);
+			vec3.cross(norm, a, b);
+			for (var j = 0; j < 3; j++) {
+				for (var k = 0; k < 3; k++) {
+					normals[(i * 3 + j) * 3 + k] = norm[k];
+				}
+			}
+		}
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+		normalBuffer.itemSize = 3;
+		normalBuffer.numItems = indices.length;
+		
+		// Vertex Array
+		vertexArray = gl.createVertexArray();
+		gl.bindVertexArray(vertexArray);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+		gl.vertexAttribPointer(posAttribute, vertexBuffer.itemSize, gl.FLOAT, false, 0, 0);
+		gl.enableVertexAttribArray(posAttribute);
+		gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+		gl.vertexAttribPointer(normAttribute, normalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+		gl.enableVertexAttribArray(normAttribute);
+		gl.bindVertexArray(null);
+		/** End */
+						
+		
+		function renderLoop() {
+			gl.viewport(0, 0, viewportWidth, viewportHeight);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+			gl.clearColor(0.3, 0.6, 1.0, 1.0);
+			gl.enable(gl.DEPTH_TEST);
+			
+			var mMatrix = mat4.create();
+			mat4.identity(mMatrix);
+			mat4.translate(mMatrix, mMatrix, [Math.cos(times * 20) * 2, Math.sin(times * 10) * 0.5, -7 + Math.sin(times * 20) * 2]);
+			mat4.rotate(mMatrix, mMatrix, times * 55, [0, 1, 0]);
+			mat4.rotate(mMatrix, mMatrix, Math.sin(times * 10) * 0.9, [1, 0, 0]);
+			
+			var vMatrix = mat4.create();
+			mat4.lookAt(vMatrix, camPos, [0.0, 0.0, -1.0], [0.0, -1.0, 0.0]);
+			
+			var pMatrix = mat4.create();
+			mat4.perspective(pMatrix, 55, viewportWidth / viewportHeight, 0.1, 1000.0);
+			
+			var normMatrix = mat4.create();
+			var mvMatrix = mat4.create();
+			mat4.invert(normMatrix, mMatrix);
+			mat4.transpose(normMatrix, normMatrix);
+			
+			gl.uniformMatrix4fv(mMatrixUniform, false, mMatrix);
+			gl.uniformMatrix4fv(vMatrixUniform, false, vMatrix);
+			gl.uniformMatrix4fv(pMatrixUniform, false, pMatrix);
+			gl.uniformMatrix4fv(normMatrixUniform, false, normMatrix);
+			gl.uniform1f(timeUniform, times);
+			gl.bindVertexArray(vertexArray);
+			gl.drawArrays(gl.TRIANGLES, 0, vertexBuffer.numItems);
+			
+			times += 0.005;
+		}
+		
+		setInterval(renderLoop, 100);
+	</script>
+	</body>
+</html>
